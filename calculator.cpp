@@ -1,7 +1,7 @@
-
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 
 // Token stuff
 struct token
@@ -24,21 +24,14 @@ struct token
 
 class token_stream
 {
-    // representation: not directly accessible to users:
     bool full;       // is there a token in the buffer?
-    token buffer;    // here is where we keep a Token put back using
-                     // putback()
+    token buffer;    // here is where we keep a Token put back using putback()
+
 public:
-    // user interface:
     token get();            // get a token
     void putback(token);    // put a token back into the token_stream
 
-    // constructor: make a token_stream, the buffer starts empty
-    token_stream()
-      : full(false)
-      , buffer(0)
-    {
-    }
+    token_stream() : full(false), buffer(0) {}
 };
 
 // single global instance of the token_stream
@@ -54,14 +47,12 @@ void token_stream::putback(token t)
 
 token token_stream::get()    // read a token from the token_stream
 {
-    // check if we already have a Token ready
     if (full)
     {
         full = false;
         return buffer;
     }
 
-    // note that >> skips whitespace (space, newline, tab, etc.)
     char ch;
     std::cin >> ch;
 
@@ -75,7 +66,8 @@ token token_stream::get()    // read a token from the token_stream
     case '-':
     case '*':
     case '/':
-        return token(ch);    // let each character represent itself
+    case '%':
+        return token(ch);
     case '.':
     case '0':
     case '1':
@@ -88,10 +80,10 @@ token token_stream::get()    // read a token from the token_stream
     case '8':
     case '9':
     {
-        std::cin.putback(ch);      // put digit back into the input stream
+        std::cin.putback(ch);
         double val;
-        std::cin >> val;           // read a floating-point number
-        return token('8', val);    // let ‘8’ represent “a number”
+        std::cin >> val;
+        return token('8', val);
     }
     default:
         throw std::runtime_error("Bad token");
@@ -116,18 +108,20 @@ double primary()    // Number or ‘(‘ Expression ‘)’
     }
     case '8':    // we use ‘8’ to represent the “kind” of a number
         return t.value;    // return the number’s value
+    case '-':
+        return -primary(); // handle negative numbers
     default:
         throw std::runtime_error("primary expected");
     }
 }
 
-// exactly like expression(), but for * and /
+// exactly like expression(), but for * and / and %
 double term()
 {
     double left = primary();    // get the Primary
     while (true)
     {
-        token t = ts.get();     // get the next Token ...
+        token t = ts.get();    // get the next Token ...
         switch (t.kind)
         {
         case '*':
@@ -141,9 +135,17 @@ double term()
             left /= d;
             break;
         }
+        case '%':
+        {
+            double d = primary();
+            if (d == 0)
+                throw std::runtime_error("divide by zero");
+            left = fmod(left, d); // calculate remainder using fmod function
+            break;
+        }
         default:
-            ts.putback(t);    // <<< put the unused token back
-            return left;      // return the value
+            ts.putback(t); // put back the unused token
+            return left;   // return the value
         }
     }
 }
@@ -152,10 +154,10 @@ double term()
 // 	 return the sum (or difference)
 double expression()
 {
-    double left = term();      // get the Term
+    double left = term();    // get the Term
     while (true)
     {
-        token t = ts.get();    // get the next token ...
+        token t = ts.get();    // get the next token…
         switch (t.kind)        // ... and do the right thing with it
         {
         case '+':
@@ -165,33 +167,66 @@ double expression()
             left -= term();
             break;
         default:
-            ts.putback(t);    // <<< put the unused token back
-            return left;      // return the value of the expression
+            ts.putback(t); // put back the unused token
+            return left;   // return the value of the expression
         }
+    }
+}
+
+std::unordered_map<std::string, double> variables; // map to store variables and their values
+
+double get_value(std::string s)
+{
+    if (variables.find(s) != variables.end())
+        return variables[s];
+    else
+        throw std::runtime_error("Undefined variable: " + s);
+}
+
+void set_value(std::string s, double d)
+{
+    variables[s] = d;
+}
+
+double statement()
+{
+    token t = ts.get();
+    if (t.kind == '8') // number
+    {
+        token var = ts.get(); // variable name
+        if (var.kind != '=')
+            throw std::runtime_error("= expected after number");
+        double d = expression();
+        set_value(std::string(1, t.kind), d); // store the value in the variable
+        return d;
+    }
+    else if (t.kind == 'q') // quit
+    {
+        exit(0);
+    }
+    else if (t.kind == ';') // ignore new lines
+    {
+        return 0;
+    }
+    else
+    {
+        ts.putback(t);
+        return expression();
     }
 }
 
 int main()
 try
 {
-    double val = 0;
-
     while (std::cin)
     {
-        token t = ts.get();
-        if (t.kind == 'q')
-            break;    // ‘q’ for “quit”
-
-        if (t.kind == ';')               // ‘;’ for “print now”
-            std::cout << val << '\n';    // print result
-        else
-            ts.putback(t);
-            
-        val = expression();    // evaluate
+        std::cout << ">> ";
+        statement();
+        std::cout << '\n';
     }
     return 0;
 }
-catch (std::runtime_error& e)
+catch (std::runtime_error &e)
 {
     std::cerr << e.what() << std::endl;
     return 1;
